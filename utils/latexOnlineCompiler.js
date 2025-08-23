@@ -12,12 +12,16 @@ export async function compileLatexToPdfOnline(latexContent) {
       throw new Error('Invalid LaTeX content: Missing \\end{document}');
     }
     
-    // Option 1: LaTeX.Online API (Updated endpoint)
-    const response = await fetch('https://latexonline.cc/compile?text=' + encodeURIComponent(latexContent), {
-      method: 'GET',
+    // Option 1: LaTeX.Online API (POST method for large content)
+    const response = await fetch('https://latexonline.cc/compile', {
+      method: 'POST',
       headers: {
-        'Accept': 'application/pdf',
-      }
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        text: latexContent,
+        command: 'pdflatex'
+      })
     });
     
     if (!response.ok) {
@@ -58,14 +62,20 @@ export async function compileLatexToPdfOnline(latexContent) {
         console.log('QuickLaTeX response:', responseText.substring(0, 100));
         
         // QuickLaTeX returns a URL to the generated image/PDF
-        if (responseText.includes('http')) {
-          const imageUrl = responseText.split(' ')[1];
-          const imageResponse = await fetch(imageUrl);
-          if (imageResponse.ok) {
-            const fallbackBuffer = await imageResponse.arrayBuffer();
-            console.log('QuickLaTeX compilation successful');
-            return Buffer.from(fallbackBuffer);
+        // Response format: "0\nhttps://quicklatex.com/cache3/..." or error code
+        const lines = responseText.trim().split('\n');
+        if (lines.length >= 2 && lines[0] === '0') {
+          const imageUrl = lines[1];
+          if (imageUrl.startsWith('http')) {
+            const imageResponse = await fetch(imageUrl);
+            if (imageResponse.ok) {
+              const fallbackBuffer = await imageResponse.arrayBuffer();
+              console.log('QuickLaTeX compilation successful');
+              return Buffer.from(fallbackBuffer);
+            }
           }
+        } else {
+          console.log('QuickLaTeX returned error code:', lines[0]);
         }
       }
     } catch (fallbackError) {
@@ -86,12 +96,16 @@ export function checkOnlineLatexService() {
 Test document
 \\end{document}`;
       
-      // Test the updated endpoint
-      const response = await fetch('https://latexonline.cc/compile?text=' + encodeURIComponent(testLatex), {
-        method: 'GET',
+      // Test with POST method
+      const response = await fetch('https://latexonline.cc/compile', {
+        method: 'POST',
         headers: {
-          'Accept': 'application/pdf',
-        }
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          text: testLatex,
+          command: 'pdflatex'
+        })
       });
       
       if (response.ok) {
