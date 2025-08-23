@@ -12,16 +12,12 @@ export async function compileLatexToPdfOnline(latexContent) {
       throw new Error('Invalid LaTeX content: Missing \\end{document}');
     }
     
-    // Option 1: LaTeX.Online API (Free)
-    const response = await fetch('https://latexonline.cc/compile', {
-      method: 'POST',
+    // Option 1: LaTeX.Online API (Updated endpoint)
+    const response = await fetch('https://latexonline.cc/compile?text=' + encodeURIComponent(latexContent), {
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        text: latexContent,
-        command: 'pdflatex'
-      })
+        'Accept': 'application/pdf',
+      }
     });
     
     if (!response.ok) {
@@ -38,29 +34,42 @@ export async function compileLatexToPdfOnline(latexContent) {
     console.error('--- ONLINE LATEX COMPILATION ERROR ---');
     console.error('Error:', error.message);
     
-    // Fallback: Try alternative service
+    // Fallback: Try alternative service - QuickLaTeX
     try {
-      console.log('Trying alternative LaTeX service...');
+      console.log('Trying QuickLaTeX service...');
       
-      // Option 2: Overleaf API alternative (if available)
-      const fallbackResponse = await fetch('https://texlive.net/run', {
+      const fallbackResponse = await fetch('https://quicklatex.com/latex3.f', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: JSON.stringify({
-          code: latexContent,
-          format: 'pdf'
+        body: new URLSearchParams({
+          formula: latexContent,
+          fsize: '17px',
+          fcolor: '000000',
+          mode: '0',
+          out: '1',
+          remhost: 'quicklatex.com'
         })
       });
       
       if (fallbackResponse.ok) {
-        const fallbackBuffer = await fallbackResponse.arrayBuffer();
-        console.log('Fallback compilation successful');
-        return Buffer.from(fallbackBuffer);
+        const responseText = await fallbackResponse.text();
+        console.log('QuickLaTeX response:', responseText.substring(0, 100));
+        
+        // QuickLaTeX returns a URL to the generated image/PDF
+        if (responseText.includes('http')) {
+          const imageUrl = responseText.split(' ')[1];
+          const imageResponse = await fetch(imageUrl);
+          if (imageResponse.ok) {
+            const fallbackBuffer = await imageResponse.arrayBuffer();
+            console.log('QuickLaTeX compilation successful');
+            return Buffer.from(fallbackBuffer);
+          }
+        }
       }
     } catch (fallbackError) {
-      console.error('Fallback also failed:', fallbackError.message);
+      console.error('QuickLaTeX also failed:', fallbackError.message);
     }
     
     throw new Error(`Online LaTeX compilation failed: ${error.message}`);
@@ -77,15 +86,12 @@ export function checkOnlineLatexService() {
 Test document
 \\end{document}`;
       
-      const response = await fetch('https://latexonline.cc/compile', {
-        method: 'POST',
+      // Test the updated endpoint
+      const response = await fetch('https://latexonline.cc/compile?text=' + encodeURIComponent(testLatex), {
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          text: testLatex,
-          command: 'pdflatex'
-        })
+          'Accept': 'application/pdf',
+        }
       });
       
       if (response.ok) {
@@ -94,7 +100,36 @@ Test document
         resolve(true);
       } else {
         console.log('Online LaTeX service returned error:', response.status);
-        resolve(false);
+        
+        // Try QuickLaTeX as fallback check
+        try {
+          const fallbackResponse = await fetch('https://quicklatex.com/latex3.f', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+              formula: testLatex,
+              fsize: '17px',
+              fcolor: '000000',
+              mode: '0',
+              out: '1',
+              remhost: 'quicklatex.com'
+            })
+          });
+          
+          if (fallbackResponse.ok) {
+            console.log('QuickLaTeX service is available as fallback');
+            console.log('--- ONLINE LATEX SERVICE CHECK PASSED (QuickLaTeX) ---');
+            resolve(true);
+          } else {
+            console.log('Both LaTeX services failed');
+            resolve(false);
+          }
+        } catch (fallbackError) {
+          console.log('Fallback service check failed:', fallbackError.message);
+          resolve(false);
+        }
       }
     } catch (error) {
       console.log('Online LaTeX service check failed:', error.message);
