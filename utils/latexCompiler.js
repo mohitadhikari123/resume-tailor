@@ -2,16 +2,26 @@ import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
+import { compileLatexToPdfOnline } from './latexOnlineCompiler.js';
 
 const execAsync = promisify(exec);
 
 export async function compileLatexToPdf(latexContent) {
+  // Check if running in Vercel/serverless environment
+  const isVercel = process.env.VERCEL || process.env.NODE_ENV === 'production';
+  
+  if (isVercel) {
+    console.log('Running in serverless environment - using online LaTeX compiler');
+    return await compileLatexToPdfOnline(latexContent);
+  }
+  
+  // Local compilation for development
   const timestamp = Date.now();
   const tempDir = path.join(process.cwd(), 'temp');
   const texFilePath = path.join(tempDir, `resume_${timestamp}.tex`);
   const pdfFilePath = path.join(tempDir, `resume_${timestamp}.pdf`);
 
-  console.log('--- LATEX COMPILATION STARTED ---');
+  console.log('--- LOCAL LATEX COMPILATION STARTED ---');
   console.log('LaTeX content length:', latexContent.length, 'characters');
   console.log('Temp directory:', tempDir);
   console.log('TeX file path:', texFilePath);
@@ -120,7 +130,7 @@ export async function compileLatexToPdf(latexContent) {
     console.log('Cleaning up temporary files...');
     const fileName = `resume_${timestamp}`;
     cleanupTempFiles(tempDir, fileName);
-    console.log('--- LATEX COMPILATION COMPLETED SUCCESSFULLY ---');
+    console.log('--- LOCAL LATEX COMPILATION COMPLETED SUCCESSFULLY ---');
     
     return pdfBuffer;
     
@@ -159,30 +169,49 @@ function cleanupTempFiles(tempDir, fileName) {
 }
 
 export function checkLatexInstallation() {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     console.log('--- LATEX INSTALLATION CHECK STARTED ---');
     
-    // Add MiKTeX and Perl paths to the environment for this check
+    // Check if running in Vercel/serverless environment
+    const isVercel = process.env.VERCEL || process.env.NODE_ENV === 'production';
+    
+    if (isVercel) {
+      console.log('Running in serverless environment - checking online LaTeX service');
+      const { checkOnlineLatexService } = await import('./latexOnlineCompiler.js');
+      const isOnlineAvailable = await checkOnlineLatexService();
+      resolve(isOnlineAvailable);
+      return;
+    }
+    
+    // Local LaTeX installation check
     const env = { ...process.env };
     env.PATH = env.PATH || '';
-    const mikTexPath = 'C:\\Users\\Digital Guru\\AppData\\Local\\Programs\\MiKTeX\\miktex\\bin\\x64';
-    const perlPath = 'C:\\Strawberry\\perl\\bin';
     
-    console.log('Setting up environment for LaTeX check...');
-    console.log('MiKTeX path:', mikTexPath);
-    console.log('Perl path:', perlPath);
+    // Check if running in production/Linux environment
+    const isLinux = process.platform === 'linux';
     
-    // Add paths to the environment PATH if they're not already there
-    if (!env.PATH.includes(mikTexPath)) {
-      env.PATH = `${env.PATH};${mikTexPath}`;
-      console.log('Added MiKTeX path to environment for check');
+    if (!isLinux) {
+      // Windows-specific paths (for local development)
+      const mikTexPath = 'C:\\Users\\Digital Guru\\AppData\\Local\\Programs\\MiKTeX\\miktex\\bin\\x64';
+      const perlPath = 'C:\\Strawberry\\perl\\bin';
+      
+      console.log('Setting up environment for LaTeX check...');
+      console.log('MiKTeX path:', mikTexPath);
+      console.log('Perl path:', perlPath);
+      
+      // Add paths to the environment PATH if they're not already there
+      if (!env.PATH.includes(mikTexPath)) {
+        env.PATH = `${env.PATH};${mikTexPath}`;
+        console.log('Added MiKTeX path to environment for check');
+      }
+      if (!env.PATH.includes(perlPath)) {
+        env.PATH = `${env.PATH};${perlPath}`;
+        console.log('Added Perl path to environment for check');
+      }
+    } else {
+      console.log('Running in Linux environment - using system LaTeX installation');
     }
-    if (!env.PATH.includes(perlPath)) {
-      env.PATH = `${env.PATH};${perlPath}`;
-      console.log('Added Perl path to environment for check');
-    }
     
-    console.log('Checking pdflatex availability...');
     exec('pdflatex --version', { env }, (error, stdout, stderr) => {
       if (error) {
         console.log('pdflatex not found, error:', error.message);

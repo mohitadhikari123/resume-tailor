@@ -149,7 +149,8 @@ export async function GET() {
         ready: latexInstalled && geminiConfigured && resumeTemplateExists
       }
     });
-  } catch (error) {
+  } catch (err) {
+    console.error('API status check error:', err);
     return NextResponse.json(
       { error: 'Failed to check API status' },
       { status: 500 }

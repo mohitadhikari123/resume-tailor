@@ -14,7 +14,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
-  const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null);
+  const [, setApiStatus] = useState<ApiStatus | null>(null);
   const [mounted, setMounted] = useState(false);
   const [latexContent, setLatexContent] = useState('');
 
@@ -27,7 +27,7 @@ export default function Home() {
     }
   }, []);
 
-  const checkApiStatus = async () => {
+  const checkApiStatus = async (): Promise<void> => {
     try {
       const response = await fetch('/api/tailor');
       const data = await response.json();
@@ -264,7 +264,7 @@ export default function Home() {
                   <h3 className="text-sm font-medium text-blue-900 mb-2">How it works:</h3>
                   <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
                     <li>Paste the job description in the textarea above</li>
-                    <li>Click "Generate Tailored Resume" to start the AI processing</li>
+                    <li>Click &quot;Generate Tailored Resume&quot; to start the AI processing</li>
                     <li>Our AI will analyze the job requirements and customize your resume</li>
                     <li>A tailored PDF resume will be automatically downloaded</li>
                   </ol>
