@@ -12,88 +12,108 @@ export async function compileLatexToPdfOnline(latexContent) {
       throw new Error('Invalid LaTeX content: Missing \\end{document}');
     }
     
-    // Option 1: LaTeX.Online API (POST method for large content)
-    const response = await fetch('https://latexonline.cc/compile', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        text: latexContent,
-        command: 'pdflatex'
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`LaTeX compilation failed: ${response.status} ${response.statusText}`);
+    // Option 1: Overleaf API (more reliable)
+    try {
+      console.log('Trying Overleaf Compile API...');
+      const overleafResponse = await fetch('https://www.overleaf.com/docs/compile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          compile: {
+            options: {
+              compiler: 'pdflatex',
+              timeout: 60
+            },
+            rootResourcePath: 'main.tex',
+            resources: [{
+              path: 'main.tex',
+              content: latexContent
+            }]
+          }
+        })
+      });
+      
+      if (overleafResponse.ok) {
+        const result = await overleafResponse.json();
+        if (result.compile && result.compile.status === 'success' && result.compile.outputFiles) {
+          const pdfFile = result.compile.outputFiles.find(f => f.path === 'output.pdf');
+          if (pdfFile && pdfFile.url) {
+            const pdfResponse = await fetch(pdfFile.url);
+            if (pdfResponse.ok) {
+              const pdfBuffer = await pdfResponse.arrayBuffer();
+              console.log('Overleaf compilation successful, PDF size:', pdfBuffer.byteLength);
+              console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (Overleaf) ---');
+              return Buffer.from(pdfBuffer);
+            }
+          }
+        }
+      }
+    } catch (overleafError) {
+      console.log('Overleaf failed:', overleafError.message);
     }
     
-    const pdfBuffer = await response.arrayBuffer();
-    console.log('PDF buffer size:', pdfBuffer.byteLength, 'bytes');
-    console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY ---');
-    
-    return Buffer.from(pdfBuffer);
-    
-  } catch (error) {
-    console.error('--- ONLINE LATEX COMPILATION ERROR ---');
-    console.error('Error:', error.message);
-    
-    // Fallback: Try alternative service - QuickLaTeX
+    // Option 2: LaTeX Base64 API
     try {
-      console.log('Trying QuickLaTeX service...');
-      
-      const fallbackResponse = await fetch('https://quicklatex.com/latex3.f', {
+      console.log('Trying LaTeX Base64 service...');
+      const base64Response = await fetch('https://latex.codecogs.com/pdf.download', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-          formula: latexContent,
-          fsize: '17px',
-          fcolor: '000000',
-          mode: '0',
-          out: '1',
-          remhost: 'quicklatex.com'
+          latex: latexContent
         })
       });
       
-      if (fallbackResponse.ok) {
-        const responseText = await fallbackResponse.text();
-        console.log('QuickLaTeX response:', responseText.substring(0, 100));
-        
-        // QuickLaTeX returns a URL to the generated image/PDF
-        // Response format: "0\nhttps://quicklatex.com/cache3/..." where 0 = success
-        const lines = responseText.trim().split('\n');
-        if (lines.length >= 2 && lines[0] === '0') {
-          const imageUrl = lines[1];
-          if (imageUrl.startsWith('http')) {
-            console.log('QuickLaTeX generated image URL:', imageUrl);
-            const imageResponse = await fetch(imageUrl);
-            if (imageResponse.ok) {
-              const fallbackBuffer = await imageResponse.arrayBuffer();
-              console.log('QuickLaTeX compilation successful, buffer size:', fallbackBuffer.byteLength);
-              console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (QuickLaTeX) ---');
-              return Buffer.from(fallbackBuffer);
-            } else {
-              console.log('Failed to fetch QuickLaTeX image:', imageResponse.status);
-              throw new Error(`Failed to fetch QuickLaTeX image: ${imageResponse.status}`);
-            }
-          } else {
-            console.log('Invalid QuickLaTeX URL format:', imageUrl);
-            throw new Error(`Invalid QuickLaTeX URL format: ${imageUrl}`);
-          }
-        } else {
-          console.log('QuickLaTeX returned error code:', lines[0]);
-          if (lines.length > 1) {
-            console.log('QuickLaTeX error details:', lines.slice(1).join(' '));
-          }
-          throw new Error(`QuickLaTeX compilation failed with code: ${lines[0]}`);
+      if (base64Response.ok) {
+        const pdfBuffer = await base64Response.arrayBuffer();
+        if (pdfBuffer.byteLength > 1000) { // Valid PDF should be larger than 1KB
+          console.log('LaTeX Base64 compilation successful, PDF size:', pdfBuffer.byteLength);
+          console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (Base64) ---');
+          return Buffer.from(pdfBuffer);
         }
       }
-    } catch (fallbackError) {
-      console.error('QuickLaTeX also failed:', fallbackError.message);
+    } catch (base64Error) {
+      console.log('LaTeX Base64 failed:', base64Error.message);
     }
     
+    // Option 3: Simple LaTeX to PDF service
+    try {
+      console.log('Trying simple LaTeX service...');
+      const simpleResponse = await fetch('https://api.latex2pdf.com/compile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          latex: latexContent,
+          engine: 'pdflatex'
+        })
+      });
+      
+      if (simpleResponse.ok) {
+        const result = await simpleResponse.json();
+        if (result.success && result.pdf_url) {
+          const pdfResponse = await fetch(result.pdf_url);
+          if (pdfResponse.ok) {
+            const pdfBuffer = await pdfResponse.arrayBuffer();
+            console.log('Simple LaTeX service successful, PDF size:', pdfBuffer.byteLength);
+            console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (Simple) ---');
+            return Buffer.from(pdfBuffer);
+          }
+        }
+      }
+    } catch (simpleError) {
+      console.log('Simple LaTeX service failed:', simpleError.message);
+    }
+    
+    throw new Error('All LaTeX compilation services failed');
+    
+  } catch (error) {
+    console.error('--- ONLINE LATEX COMPILATION ERROR ---');
+    console.error('Error:', error.message);
     throw new Error(`Online LaTeX compilation failed: ${error.message}`);
   }
 }
@@ -108,55 +128,58 @@ export function checkOnlineLatexService() {
 Test document
 \\end{document}`;
       
-      // Test with POST method
-      const response = await fetch('https://latexonline.cc/compile', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          text: testLatex,
-          command: 'pdflatex'
-        })
-      });
-      
-      if (response.ok) {
-        console.log('Online LaTeX service is available');
-        console.log('--- ONLINE LATEX SERVICE CHECK PASSED ---');
-        resolve(true);
-      } else {
-        console.log('Online LaTeX service returned error:', response.status);
+      // Test LaTeX Base64 service (most likely to work)
+      try {
+        const base64Response = await fetch('https://latex.codecogs.com/pdf.download', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            latex: testLatex
+          })
+        });
         
-        // Try QuickLaTeX as fallback check
-        try {
-          const fallbackResponse = await fetch('https://quicklatex.com/latex3.f', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: new URLSearchParams({
-              formula: testLatex,
-              fsize: '17px',
-              fcolor: '000000',
-              mode: '0',
-              out: '1',
-              remhost: 'quicklatex.com'
-            })
-          });
-          
-          if (fallbackResponse.ok) {
-            console.log('QuickLaTeX service is available as fallback');
-            console.log('--- ONLINE LATEX SERVICE CHECK PASSED (QuickLaTeX) ---');
+        if (base64Response.ok) {
+          const testBuffer = await base64Response.arrayBuffer();
+          if (testBuffer.byteLength > 500) {
+            console.log('LaTeX Base64 service is available');
+            console.log('--- ONLINE LATEX SERVICE CHECK PASSED (Base64) ---');
             resolve(true);
-          } else {
-            console.log('Both LaTeX services failed');
-            resolve(false);
+            return;
           }
-        } catch (fallbackError) {
-          console.log('Fallback service check failed:', fallbackError.message);
-          resolve(false);
         }
+      } catch (base64Error) {
+        console.log('Base64 service check failed:', base64Error.message);
       }
+      
+      // Test simple LaTeX service
+      try {
+        const simpleResponse = await fetch('https://api.latex2pdf.com/compile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            latex: testLatex,
+            engine: 'pdflatex'
+          })
+        });
+        
+        if (simpleResponse.ok) {
+          console.log('Simple LaTeX service is available');
+          console.log('--- ONLINE LATEX SERVICE CHECK PASSED (Simple) ---');
+          resolve(true);
+          return;
+        }
+      } catch (simpleError) {
+        console.log('Simple service check failed:', simpleError.message);
+      }
+      
+      console.log('All LaTeX services failed health check');
+      console.log('--- ONLINE LATEX SERVICE CHECK FAILED ---');
+      resolve(false);
+      
     } catch (error) {
       console.log('Online LaTeX service check failed:', error.message);
       console.log('--- ONLINE LATEX SERVICE CHECK FAILED ---');
