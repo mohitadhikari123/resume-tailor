@@ -121,6 +121,7 @@ CRITICAL OUTPUT REQUIREMENTS:
       console.log('Gemini API request completed');
       
       const response = await result.response;
+      console.log('Gemini API response:', response.text());
       let tailoredResume = response.text();
 
       // tailoredResume = cleanLatexResponse(tailoredResume);
