@@ -76,15 +76,18 @@ export async function compileLatexToPdfOnline(latexContent) {
               return Buffer.from(fallbackBuffer);
             } else {
               console.log('Failed to fetch QuickLaTeX image:', imageResponse.status);
+              throw new Error(`Failed to fetch QuickLaTeX image: ${imageResponse.status}`);
             }
           } else {
             console.log('Invalid QuickLaTeX URL format:', imageUrl);
+            throw new Error(`Invalid QuickLaTeX URL format: ${imageUrl}`);
           }
         } else {
           console.log('QuickLaTeX returned error code:', lines[0]);
           if (lines.length > 1) {
             console.log('QuickLaTeX error details:', lines.slice(1).join(' '));
           }
+          throw new Error(`QuickLaTeX compilation failed with code: ${lines[0]}`);
         }
       }
     } catch (fallbackError) {
