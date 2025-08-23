@@ -62,20 +62,29 @@ export async function compileLatexToPdfOnline(latexContent) {
         console.log('QuickLaTeX response:', responseText.substring(0, 100));
         
         // QuickLaTeX returns a URL to the generated image/PDF
-        // Response format: "0\nhttps://quicklatex.com/cache3/..." or error code
+        // Response format: "0\nhttps://quicklatex.com/cache3/..." where 0 = success
         const lines = responseText.trim().split('\n');
         if (lines.length >= 2 && lines[0] === '0') {
           const imageUrl = lines[1];
           if (imageUrl.startsWith('http')) {
+            console.log('QuickLaTeX generated image URL:', imageUrl);
             const imageResponse = await fetch(imageUrl);
             if (imageResponse.ok) {
               const fallbackBuffer = await imageResponse.arrayBuffer();
-              console.log('QuickLaTeX compilation successful');
+              console.log('QuickLaTeX compilation successful, buffer size:', fallbackBuffer.byteLength);
+              console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (QuickLaTeX) ---');
               return Buffer.from(fallbackBuffer);
+            } else {
+              console.log('Failed to fetch QuickLaTeX image:', imageResponse.status);
             }
+          } else {
+            console.log('Invalid QuickLaTeX URL format:', imageUrl);
           }
         } else {
           console.log('QuickLaTeX returned error code:', lines[0]);
+          if (lines.length > 1) {
+            console.log('QuickLaTeX error details:', lines.slice(1).join(' '));
+          }
         }
       }
     } catch (fallbackError) {
