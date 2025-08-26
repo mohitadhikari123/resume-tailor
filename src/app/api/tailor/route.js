@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { tailorResumeWithGemini } from '../../../../utils/gemini.js';
-import { compileLatexToPdf, checkLatexInstallation } from '../../../../utils/latexCompiler.js';
+import { compileLatexToPdf } from '../../../../utils/latexCompiler.js';
 
 export async function POST(request) {
   try {
@@ -31,20 +31,6 @@ export async function POST(request) {
     }
     console.log('Gemini API key is configured ✓');
     
-    // Check LaTeX installation
-    console.log('Checking LaTeX installation...');
-    const latexInstalled = await checkLatexInstallation();
-    if (!latexInstalled) {
-      console.log('ERROR: LaTeX not installed or not found');
-      return NextResponse.json(
-        { 
-          error: 'LaTeX not found. Please install LaTeX (TeX Live, MiKTeX, or MacTeX) to compile PDFs.',
-          installationRequired: true
-        },
-        { status: 500 }
-      );
-    }
-    console.log('LaTeX installation verified ✓');
     
     // Read the original LaTeX resume template
     console.log('Reading resume template...');
@@ -117,7 +103,7 @@ export async function POST(request) {
     if (error.message.includes('LaTeX compilation')) {
       return NextResponse.json(
         { 
-          error: 'Failed to compile PDF. Please ensure LaTeX is properly installed.',
+          error: 'Failed to compile PDF using online LaTeX service.',
           details: error.message
         },
         { status: 500 }
@@ -134,7 +120,6 @@ export async function POST(request) {
 // Handle GET requests to check API status
 export async function GET() {
   try {
-    const latexInstalled = await checkLatexInstallation();
     const geminiConfigured = !!process.env.GEMINI_API_KEY;
     const resumeTemplateExists = fs.existsSync(
       path.join(process.cwd(), 'resume-template', 'resume.tex')
@@ -143,10 +128,10 @@ export async function GET() {
     return NextResponse.json({
       status: 'Resume Tailor API is running',
       configuration: {
-        latexInstalled,
+        onlineLatexEnabled: true,
         geminiConfigured,
         resumeTemplateExists,
-        ready: latexInstalled && geminiConfigured && resumeTemplateExists
+        ready: geminiConfigured && resumeTemplateExists
       }
     });
   } catch (err) {

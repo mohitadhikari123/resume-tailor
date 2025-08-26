@@ -36,7 +36,7 @@ export async function compileLatexToPdf(latexContent) {
     
     // Write LaTeX content to file
     console.log('Writing LaTeX content to file...');
-    console.log('LaTeX content preview', latexContent);
+    // console.log('LaTeX content preview', latexContent);
     
     // Validate LaTeX content before writing
     if (!latexContent.includes('\\documentclass')) {
