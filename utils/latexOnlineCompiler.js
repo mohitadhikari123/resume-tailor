@@ -31,8 +31,8 @@ async function compileLatexToPdfOnline(latexContent) {
       
       if (overleafResponse.ok) {
         // Overleaf redirects to the project, we need to extract the project URL
+        console.log('Overleaf response received, processing...',overleafResponse);
         const responseText = await overleafResponse.text();
-        console.log('Overleaf response received, processing...');
         
         // Look for project URL in the response
         const projectMatch = responseText.match(/\/project\/([a-f0-9]+)/);
