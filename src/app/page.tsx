@@ -219,6 +219,7 @@ export default function Home() {
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-lg font-medium text-gray-900">Generated LaTeX Code</h3>
                     <button
+                      type="button"
                       onClick={() => {
                         navigator.clipboard.writeText(latexContent);
                         alert('LaTeX content copied to clipboard!');

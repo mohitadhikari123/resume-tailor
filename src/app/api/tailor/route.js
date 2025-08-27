@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { tailorResumeWithGemini } from '../../../../utils/gemini.js';
+import { tailorResumeWithGemini, tailorResumeWithGeminiKeywords } from '../../../../utils/gemini.js';
 import { compileLatexToPdf } from '../../../../utils/latexCompiler.js';
 
 export async function POST(request) {
@@ -9,13 +9,23 @@ export async function POST(request) {
     console.log('=== RESUME TAILOR API STARTED ===');
     
     // Parse the request body
-    const { jobDescription } = await request.json();
-    console.log('Job description received:', jobDescription?.substring(0, 100) + '...');
+    const body = await request.json();
+    const { jobDescription } = body || {};
+    const keywordsRaw = body?.keywords; // can be array or comma-separated string
+    const keywords = Array.isArray(keywordsRaw)
+      ? keywordsRaw.filter(Boolean).map(x => String(x).trim()).filter(Boolean)
+      : (typeof keywordsRaw === 'string' ? keywordsRaw.split(',').map(s => s.trim()).filter(Boolean) : []);
     
-    if (!jobDescription || jobDescription.trim() === '') {
-      console.log('ERROR: Job description is empty');
+    if (keywords.length > 0) {
+      console.log('Keywords received:', keywords.join(', '));
+    } else {
+      console.log('Job description received:', jobDescription?.substring(0, 100) + '...');
+    }
+    
+    if ((!keywords || keywords.length === 0) && (!jobDescription || jobDescription.trim() === '')) {
+      console.log('ERROR: Neither keywords nor job description provided');
       return NextResponse.json(
-        { error: 'Job description is required' },
+        { error: 'Provide either keywords (array or comma-separated string) or a jobDescription.' },
         { status: 400 }
       );
     }
@@ -49,7 +59,9 @@ export async function POST(request) {
     
     // Call Gemini API to tailor the resume
     console.log('Calling Gemini API to tailor resume...');
-    const tailoredLatex = await tailorResumeWithGemini(jobDescription, originalResume);
+    const tailoredLatex = keywords.length > 0
+      ? await tailorResumeWithGeminiKeywords(keywords, originalResume)
+      : await tailorResumeWithGemini(jobDescription, originalResume);
     console.log('Gemini API response received, tailored LaTeX length:', tailoredLatex.length, 'characters');
     
     // Compile the tailored LaTeX to PDF
@@ -60,14 +72,19 @@ export async function POST(request) {
     // Generate filename with current date
     const currentDate = new Date();
     const formattedDate = currentDate.toLocaleDateString('en-GB').replace(/\//g, '');
-    const filename = `Mohit_Adhikari_Resume_${formattedDate}.pdf`;
     
-    // Return the PDF as a downloadable response with LaTeX content in headers
+    // Detect file type based on buffer content
+    const isPNG = pdfBuffer[0] === 0x89 && pdfBuffer[1] === 0x50 && pdfBuffer[2] === 0x4E && pdfBuffer[3] === 0x47;
+    const contentType = isPNG ? 'image/png' : 'application/pdf';
+    const fileExtension = isPNG ? 'png' : 'pdf';
+    const filename = `Mohit_Adhikari_Resume_${formattedDate}.${fileExtension}`;
+    
+    console.log('File type detected:', contentType);
     console.log('=== RESUME TAILOR API COMPLETED SUCCESSFULLY ===');
     return new NextResponse(pdfBuffer, {
       status: 200,
       headers: {
-        'Content-Type': 'application/pdf',
+        'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Content-Length': pdfBuffer.length.toString(),
         'X-Latex-Content': encodeURIComponent(tailoredLatex),

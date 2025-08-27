@@ -4,53 +4,125 @@ async function compileLatexToPdfOnline(latexContent) {
   console.log('LaTeX content length:', latexContent.length, 'characters');
   
   try {
-    // Validate LaTeX content
-    if (!latexContent.includes('\\documentclass')) {
-      throw new Error('Invalid LaTeX content: Missing \\documentclass declaration');
+    // Method 1: YtoTech LaTeX build API (Primary)
+    console.log('Attempting YtoTech LaTeX build API...');
+    try {
+      const ytoTechResponse = await fetch('https://latex.ytotech.com/builds/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          compiler: 'lualatex',
+          resources: [
+            {
+              main: true,
+              content: latexContent
+            }
+          ]
+        })
+      });
+      
+      console.log('YtoTech response status:', ytoTechResponse.status);
+      console.log('YtoTech response headers:', Object.fromEntries(ytoTechResponse.headers.entries()));
+      
+      if (ytoTechResponse.ok) {
+        const contentType = (ytoTechResponse.headers.get('content-type') || '').toLowerCase();
+        const contentDisposition = ytoTechResponse.headers.get('content-disposition') || '';
+        
+        // Case 1: Service returns raw PDF bytes
+        if (contentType.includes('application/pdf') || /filename=.*\.pdf/i.test(contentDisposition)) {
+          const pdfBuffer = await ytoTechResponse.arrayBuffer();
+          console.log('PDF buffer size:', pdfBuffer.byteLength, 'bytes');
+          console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (YtoTech - raw PDF) ---');
+          return Buffer.from(pdfBuffer);
+        }
+
+        // Case 2: JSON payload (base64 PDF)
+        let result = null;
+        try {
+          result = await ytoTechResponse.json();
+        } catch (e) {
+          console.log('YtoTech JSON parse failed but response was OK; content-type:', contentType);
+        }
+        console.log('YtoTech result keys:', Object.keys(result || {}));
+
+        // Try multiple known shapes to extract base64 PDF
+        let pdfBase64 = null;
+        if (result && result.result && typeof result.result.output === 'string') {
+          pdfBase64 = result.result.output;
+        }
+        if (!pdfBase64 && Array.isArray(result?.outputFiles)) {
+          const pdfFile = result.outputFiles.find(f => (f.type === 'pdf') || (f.path && f.path.toLowerCase().endsWith('.pdf')));
+          if (pdfFile && typeof pdfFile.content === 'string') {
+            pdfBase64 = pdfFile.content;
+          }
+        }
+        if (!pdfBase64 && result && typeof result.pdf === 'string') {
+          pdfBase64 = result.pdf;
+        }
+        if (!pdfBase64 && result && result.result && Array.isArray(result.result.files)) {
+          const f = result.result.files.find(x => x.name && x.name.toLowerCase().endsWith('.pdf'));
+          if (f && typeof f.content === 'string') {
+            pdfBase64 = f.content;
+          }
+        }
+
+        if (pdfBase64) {
+          const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+          console.log('PDF buffer size:', pdfBuffer.byteLength, 'bytes');
+          console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (YtoTech - JSON) ---');
+          return pdfBuffer;
+        } else {
+          console.log('YtoTech response did not include a PDF payload in expected fields');
+        }
+      } else {
+        const errorText = await ytoTechResponse.text();
+        console.log('YtoTech failed with status:', ytoTechResponse.status, 'Body:', errorText);
+      }
+    } catch (ytoTechError) {
+      console.log('YtoTech method failed:', ytoTechError.message);
     }
-    if (!latexContent.includes('\\end{document}')) {
-      throw new Error('Invalid LaTeX content: Missing \\end{document}');
-    }
-    
-    // Method 1: Overleaf Base64 Data URL (Recommended)
+
+    // Method 2: Overleaf Base64 Data URL (Secondary method)
     console.log('Attempting Overleaf Base64 Data URL method...');
     try {
-      const base64Content = Buffer.from(latexContent, 'utf8').toString('base64');
+      const base64Content = Buffer.from(latexContent).toString('base64');
       const dataUrl = `data:application/x-tex;base64,${base64Content}`;
+      
+      console.log('Base64 content length:', base64Content.length);
+      console.log('Data URL length:', dataUrl.length);
       
       const overleafResponse = await fetch('https://www.overleaf.com/docs', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/json',
+          'Accept': 'application/pdf',
         },
-        body: new URLSearchParams({
-          snip_uri: dataUrl,
+        body: JSON.stringify({
+          url: dataUrl,
           engine: 'pdflatex'
         })
       });
       
+      console.log('Overleaf response status:', overleafResponse.status);
+      console.log('Overleaf response headers:', Object.fromEntries(overleafResponse.headers.entries()));
+      
       if (overleafResponse.ok) {
-        // Overleaf redirects to the project, we need to extract the project URL
-        console.log('Overleaf response received, processing...',overleafResponse);
-        const responseText = await overleafResponse.text();
+        const contentType = overleafResponse.headers.get('content-type');
+        console.log('Response content type:', contentType);
         
-        // Look for project URL in the response
-        const projectMatch = responseText.match(/\/project\/([a-f0-9]+)/);
-        if (projectMatch) {
-          const projectId = projectMatch[1];
-          console.log('Overleaf project created:', projectId);
-          
-          // Try to get the compiled PDF from the project
-          const pdfUrl = `https://www.overleaf.com/project/${projectId}/output/output.pdf`;
-          const pdfResponse = await fetch(pdfUrl);
-          
-          if (pdfResponse.ok) {
-            const pdfBuffer = await pdfResponse.arrayBuffer();
-            console.log('PDF downloaded from Overleaf, size:', pdfBuffer.byteLength, 'bytes');
-            console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (Overleaf) ---');
-            return Buffer.from(pdfBuffer);
-          }
+        if (contentType && contentType.includes('application/pdf')) {
+          const pdfBuffer = await overleafResponse.arrayBuffer();
+          console.log('PDF buffer size:', pdfBuffer.byteLength, 'bytes');
+          console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (Overleaf Base64) ---');
+          return Buffer.from(pdfBuffer);
+        } else {
+          console.log('Response is not a PDF, content type:', contentType);
         }
+      } else {
+        console.log('Overleaf request failed with status:', overleafResponse.status);
       }
       
       console.log('Overleaf method failed, trying fallback methods...');
@@ -58,33 +130,105 @@ async function compileLatexToPdfOnline(latexContent) {
       console.log('Overleaf Base64 method failed:', overleafError.message);
     }
     
-    // Method 2: LaTeX.Online API (Fallback)
-    console.log('Attempting LaTeX.Online API...');
+    // Method 2: LaTeX.Online API (Alternative endpoint)
+    console.log('Attempting LaTeX.Online API with alternative endpoint...');
     try {
-      const latexOnlineResponse = await fetch('https://latexonline.cc/compile', {
+      const latexOnlineResponse = await fetch('https://latex.ytotech.com/builds/sync', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/json',
         },
-        body: new URLSearchParams({
-          text: latexContent,
-          command: 'pdflatex'
+        body: JSON.stringify({
+          compiler: 'pdflatex',
+          resources: [{
+            file: 'main.tex',
+            content: latexContent
+          }]
         })
       });
       
+      console.log('LaTeX.Online (YtoTech) response status:', latexOnlineResponse.status);
+      console.log('LaTeX.Online (YtoTech) response headers:', Object.fromEntries(latexOnlineResponse.headers.entries()));
+      
       if (latexOnlineResponse.ok) {
-        const pdfBuffer = await latexOnlineResponse.arrayBuffer();
-        console.log('PDF buffer size:', pdfBuffer.byteLength, 'bytes');
-        console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (LaTeX.Online) ---');
-        return Buffer.from(pdfBuffer);
+        const result = await latexOnlineResponse.json();
+        console.log('LaTeX.Online (YtoTech) result:', result);
+        
+        if (result.result && result.result.output) {
+          // The service returns base64 encoded PDF
+          const pdfBase64 = result.result.output;
+          const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+          console.log('PDF buffer size:', pdfBuffer.byteLength, 'bytes');
+          console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (LaTeX.Online YtoTech) ---');
+          return pdfBuffer;
+        } else {
+          console.log('LaTeX.Online (YtoTech) - No PDF output in result');
+        }
       } else {
-        console.log('LaTeX.Online failed with status:', latexOnlineResponse.status);
+        console.log('LaTeX.Online (YtoTech) failed with status:', latexOnlineResponse.status);
+        const errorText = await latexOnlineResponse.text();
+        console.log('LaTeX.Online (YtoTech) error response:', errorText.substring(0, 200));
       }
     } catch (latexOnlineError) {
-      console.log('LaTeX.Online method failed:', latexOnlineError.message);
+      console.log('LaTeX.Online (YtoTech) method failed:', latexOnlineError.message);
     }
     
-    // Method 3: Overleaf Raw Snippet (Alternative Overleaf method)
+    // Method 3: LaTeX.Online API (Original endpoint - try different approach)
+    console.log('Attempting LaTeX.Online API with GET method...');
+    try {
+      const encodedLatex = encodeURIComponent(latexContent);
+      const getUrl = `https://latexonline.cc/compile?text=${encodedLatex}&command=pdflatex`;
+      
+      const latexOnlineGetResponse = await fetch(getUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/pdf',
+        }
+      });
+      
+      console.log('LaTeX.Online GET response status:', latexOnlineGetResponse.status);
+      
+      if (latexOnlineGetResponse.ok) {
+        const pdfBuffer = await latexOnlineGetResponse.arrayBuffer();
+        console.log('PDF buffer size:', pdfBuffer.byteLength, 'bytes');
+        console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (LaTeX.Online GET) ---');
+        return Buffer.from(pdfBuffer);
+      } else {
+        console.log('LaTeX.Online GET failed with status:', latexOnlineGetResponse.status);
+      }
+    } catch (latexOnlineGetError) {
+      console.log('LaTeX.Online GET method failed:', latexOnlineGetError.message);
+    }
+    
+    // Method 4: LaTeX-Online.com API (Different service)
+    console.log('Attempting LaTeX-Online.com API...');
+    try {
+      const latexOnlineComResponse = await fetch('https://latex-online.com/compile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          latex: latexContent,
+          format: 'pdf'
+        })
+      });
+      
+      console.log('LaTeX-Online.com response status:', latexOnlineComResponse.status);
+      
+      if (latexOnlineComResponse.ok) {
+        const pdfBuffer = await latexOnlineComResponse.arrayBuffer();
+        console.log('PDF buffer size:', pdfBuffer.byteLength, 'bytes');
+        console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (LaTeX-Online.com) ---');
+        return Buffer.from(pdfBuffer);
+      } else {
+        console.log('LaTeX-Online.com failed with status:', latexOnlineComResponse.status);
+      }
+    } catch (latexOnlineComError) {
+      console.log('LaTeX-Online.com method failed:', latexOnlineComError.message);
+    }
+    
+    // Method 5: Overleaf Raw Snippet (Alternative Overleaf method)
     console.log('Attempting Overleaf raw snippet method...');
     try {
       const rawSnippetResponse = await fetch('https://www.overleaf.com/docs', {
@@ -98,6 +242,7 @@ async function compileLatexToPdfOnline(latexContent) {
         })
       });
       
+      console.log('Overleaf raw snippet response status:', rawSnippetResponse.status);
       if (rawSnippetResponse.ok) {
         console.log('Overleaf raw snippet method initiated successfully');
         // This method creates a project but doesn't directly return PDF
@@ -107,48 +252,6 @@ async function compileLatexToPdfOnline(latexContent) {
       console.log('Overleaf raw snippet method failed:', rawSnippetError.message);
     }
     
-    // Method 4: QuickLaTeX (Final fallback)
-    console.log('Attempting QuickLaTeX service...');
-    const quickLatexResponse = await fetch('https://quicklatex.com/latex3.f', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        formula: latexContent,
-        fsize: '17px',
-        fcolor: '000000',
-        mode: '0',
-        out: '1',
-        remhost: 'quicklatex.com'
-      })
-    });
-    
-    if (quickLatexResponse.ok) {
-      const responseText = await quickLatexResponse.text();
-      console.log('QuickLaTeX response:', responseText.substring(0, 100));
-      
-      // QuickLaTeX returns a URL to the generated image/PDF
-      const lines = responseText.trim().split('\n');
-      if (lines.length >= 2 && lines[0] === '0') {
-        const imageUrl = lines[1];
-        if (imageUrl.startsWith('http')) {
-          console.log('QuickLaTeX generated image URL:', imageUrl);
-          const imageResponse = await fetch(imageUrl);
-          if (imageResponse.ok) {
-            const fallbackBuffer = await imageResponse.arrayBuffer();
-            console.log('QuickLaTeX compilation successful, buffer size:', fallbackBuffer.byteLength);
-            console.log('--- ONLINE LATEX COMPILATION COMPLETED SUCCESSFULLY (QuickLaTeX) ---');
-            return Buffer.from(fallbackBuffer);
-          }
-        }
-      } else {
-        console.log('QuickLaTeX returned error code:', lines[0]);
-        if (lines.length > 1) {
-          console.log('QuickLaTeX error details:', lines.slice(1).join(' '));
-        }
-      }
-    }
     
     throw new Error('All online LaTeX compilation methods failed');
     
@@ -219,37 +322,6 @@ Test document
       console.log('LaTeX.Online check failed:', latexOnlineError.message);
     }
     
-    // Test Method 3: QuickLaTeX
-    try {
-      console.log('Testing QuickLaTeX service...');
-      const quickLatexResponse = await fetch('https://quicklatex.com/latex3.f', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          formula: testLatex,
-          fsize: '17px',
-          fcolor: '000000',
-          mode: '0',
-          out: '1',
-          remhost: 'quicklatex.com'
-        })
-      });
-      
-      if (quickLatexResponse.ok) {
-        const responseText = await quickLatexResponse.text();
-        const lines = responseText.trim().split('\n');
-        if (lines.length >= 2 && lines[0] === '0') {
-          console.log('QuickLaTeX service is available');
-          console.log('--- ONLINE LATEX SERVICE CHECK PASSED (QuickLaTeX) ---');
-          resolve(true);
-          return;
-        }
-      }
-    } catch (quickLatexError) {
-      console.log('QuickLaTeX check failed:', quickLatexError.message);
-    }
     
     console.log('All online LaTeX services failed');
     console.log('--- ONLINE LATEX SERVICE CHECK FAILED ---');
